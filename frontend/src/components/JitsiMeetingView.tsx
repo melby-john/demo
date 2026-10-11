@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Video, ShieldCheck, Sparkles, Loader2, AlertCircle } from 'lucide-react';
+import { ShieldCheck, Loader2, AlertCircle } from 'lucide-react';
 
 declare global {
   interface Window {
@@ -24,6 +24,14 @@ export const JitsiMeetingView: React.FC<JitsiMeetingViewProps> = ({
   const jitsiApiRef = useRef<any>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Store callbacks and props in refs so re-renders of parent (e.g. sign language detection) NEVER dispose Jitsi!
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const userNameRef = useRef(userName);
+  userNameRef.current = userName;
+  const userRoleRef = useRef(userRole);
+  userRoleRef.current = userRole;
 
   useEffect(() => {
     let isMounted = true;
@@ -56,9 +64,11 @@ export const JitsiMeetingView: React.FC<JitsiMeetingViewProps> = ({
       .then(() => {
         if (!isMounted || !containerRef.current) return;
 
-        // Clean up previous instance if any
+        // Clean up previous instance only if roomName actually changed
         if (jitsiApiRef.current) {
-          jitsiApiRef.current.dispose();
+          try {
+            jitsiApiRef.current.dispose();
+          } catch (e) {}
           jitsiApiRef.current = null;
         }
 
@@ -72,7 +82,7 @@ export const JitsiMeetingView: React.FC<JitsiMeetingViewProps> = ({
           width: '100%',
           height: '100%',
           userInfo: {
-            displayName: `${userName} (${userRole === 'signer' ? 'Deaf/Signer' : 'Hearing Peer'})`
+            displayName: `${userNameRef.current} (${userRoleRef.current === 'signer' ? 'Deaf/Signer' : 'Hearing Peer'})`
           },
           configOverwrite: {
             startWithAudioMuted: false,
@@ -80,7 +90,16 @@ export const JitsiMeetingView: React.FC<JitsiMeetingViewProps> = ({
             prejoinPageEnabled: false,
             disableDeepLinking: true,
             enableWelcomePage: false,
-            defaultLanguage: 'en'
+            defaultLanguage: 'en',
+            disablePolls: true,
+            resolution: 720,
+            constraints: {
+              video: {
+                height: { ideal: 720, max: 720, min: 360 },
+                width: { ideal: 1280, max: 1280, min: 480 },
+                frameRate: { ideal: 30, max: 30 }
+              }
+            }
           },
           interfaceConfigOverwrite: {
             TOOLBAR_BUTTONS: [
@@ -108,17 +127,15 @@ export const JitsiMeetingView: React.FC<JitsiMeetingViewProps> = ({
         jitsiApiRef.current = api;
         setLoading(false);
 
-        api.addEventListener('videoConferenceLeft', () => {
-          if (onClose) onClose();
-        });
-
         api.addEventListener('readyToClose', () => {
-          if (onClose) onClose();
+          if (onCloseRef.current) {
+            onCloseRef.current();
+          }
         });
       })
       .catch((err) => {
         if (isMounted) {
-          setLoadError(err.message || 'Could not load Jitsi Meet. Please try WebRTC mode.');
+          setLoadError(err.message || 'Could not load Jitsi Meet. Please check connection.');
           setLoading(false);
         }
       });
@@ -132,7 +149,7 @@ export const JitsiMeetingView: React.FC<JitsiMeetingViewProps> = ({
         jitsiApiRef.current = null;
       }
     };
-  }, [roomName, userName, userRole, onClose]);
+  }, [roomName]); // ONLY depends on roomName! Parent re-renders will NEVER destroy the call!
 
   return (
     <div className="relative w-full h-[620px] rounded-3xl overflow-hidden bento-card border border-white/10 shadow-[0_25px_60px_rgba(0,0,0,0.6)] bg-black/90 flex flex-col">
@@ -169,7 +186,9 @@ export const JitsiMeetingView: React.FC<JitsiMeetingViewProps> = ({
             <p className="text-xs text-slate-400 mt-1 max-w-md">{loadError}</p>
           </div>
           <button
-            onClick={onClose}
+            onClick={() => {
+              if (onCloseRef.current) onCloseRef.current();
+            }}
             className="px-5 py-2.5 rounded-xl linear-btn-primary text-xs font-bold text-white"
           >
             Switch to WebRTC Direct Mode

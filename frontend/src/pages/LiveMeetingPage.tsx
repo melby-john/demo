@@ -258,10 +258,12 @@ export const LiveMeetingPage: React.FC<LiveMeetingPageProps> = ({
 
   useEffect(() => {
     if (remoteVideoRef.current && webrtcMeeting.remoteStream) {
-      remoteVideoRef.current.srcObject = webrtcMeeting.remoteStream;
+      if (remoteVideoRef.current.srcObject !== webrtcMeeting.remoteStream) {
+        remoteVideoRef.current.srcObject = webrtcMeeting.remoteStream;
+      }
       remoteVideoRef.current.play().catch(e => console.warn('Remote video playback:', e));
     }
-  }, [webrtcMeeting.remoteStream]);
+  }, [webrtcMeeting.remoteStream, webrtcMeeting.remotePeerInfo.isVideoMuted, meetingMode, layoutMode]);
 
   // Broadcast media track changes to peer
   const handleToggleMic = () => {
@@ -449,7 +451,7 @@ export const LiveMeetingPage: React.FC<LiveMeetingPageProps> = ({
     setMeetingMode('in-call');
   };
 
-  const handleEndCall = () => {
+  const handleEndCall = useCallback(() => {
     if (confirm('Leave this video meeting?')) {
       if (engineType === 'webrtc') {
         webrtcMeeting.leaveMeeting();
@@ -458,7 +460,7 @@ export const LiveMeetingPage: React.FC<LiveMeetingPageProps> = ({
       setMeetingMode('lobby');
       setActiveSubtitle(null);
     }
-  };
+  }, [engineType, webrtcMeeting, stopCamera]);
 
   const copyMeetingLink = () => {
     const origin = window.location.origin;
@@ -987,9 +989,18 @@ export const LiveMeetingPage: React.FC<LiveMeetingPageProps> = ({
                   
                   {/* Incoming Remote Video Stream */}
                   <video
-                    ref={remoteVideoRef}
+                    ref={(el) => {
+                      remoteVideoRef.current = el;
+                      if (el && webrtcMeeting.remoteStream && el.srcObject !== webrtcMeeting.remoteStream) {
+                        el.srcObject = webrtcMeeting.remoteStream;
+                        el.play().catch(e => console.warn('Remote video playback warning:', e));
+                      }
+                    }}
                     playsInline
                     autoPlay
+                    onLoadedMetadata={(e) => {
+                      (e.target as HTMLVideoElement).play().catch(e => console.warn('Playback on metadata load:', e));
+                    }}
                     className={`w-full h-full object-cover ${
                       webrtcMeeting.remoteStream && !webrtcMeeting.remotePeerInfo.isVideoMuted ? 'block' : 'hidden'
                     }`}

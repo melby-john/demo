@@ -65,6 +65,7 @@ export function useWebRTCMeeting(options: UseWebRTCMeetingOptions = {}) {
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const remoteStreamRef = useRef<MediaStream | null>(null);
   const iceCandidateQueueRef = useRef<RTCIceCandidateInit[]>([]);
   const userInfoRef = useRef<{ name: string; role: 'signer' | 'hearing' }>({
     name: 'You',
@@ -98,6 +99,7 @@ export function useWebRTCMeeting(options: UseWebRTCMeetingOptions = {}) {
 
     iceCandidateQueueRef.current = [];
     localStreamRef.current = null;
+    remoteStreamRef.current = null;
     setRemoteStream(null);
     setIsInMeeting(false);
     setConnectionStatus('idle');
@@ -135,23 +137,33 @@ export function useWebRTCMeeting(options: UseWebRTCMeetingOptions = {}) {
 
     const pc = new RTCPeerConnection(ICE_SERVERS);
     pcRef.current = pc;
+    remoteStreamRef.current = new MediaStream();
 
     // Attach local media tracks
     stream.getTracks().forEach(track => {
       pc.addTrack(track, stream);
     });
 
-    // Listen for incoming remote tracks
+    // Listen for incoming remote tracks with seamless new reference trigger
     pc.ontrack = (event) => {
       if (event.streams && event.streams[0]) {
-        setRemoteStream(event.streams[0]);
-        setConnectionStatus('connected');
-      } else {
-        const inboundStream = new MediaStream();
-        inboundStream.addTrack(event.track);
-        setRemoteStream(inboundStream);
-        setConnectionStatus('connected');
+        event.streams[0].getTracks().forEach(t => {
+          if (remoteStreamRef.current && !remoteStreamRef.current.getTracks().some(existing => existing.id === t.id)) {
+            remoteStreamRef.current.addTrack(t);
+          }
+        });
+      } else if (event.track) {
+        if (remoteStreamRef.current && !remoteStreamRef.current.getTracks().some(existing => existing.id === event.track.id)) {
+          remoteStreamRef.current.addTrack(event.track);
+        }
       }
+
+      // Always create a fresh MediaStream instance wrapper to guarantee React detects the state change
+      if (remoteStreamRef.current) {
+        const freshStream = new MediaStream(remoteStreamRef.current.getTracks());
+        setRemoteStream(freshStream);
+      }
+      setConnectionStatus('connected');
     };
 
     // Send local ICE candidates to peer via WebSocket signaling
