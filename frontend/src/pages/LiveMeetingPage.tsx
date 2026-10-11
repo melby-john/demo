@@ -56,7 +56,18 @@ export const LiveMeetingPage: React.FC<LiveMeetingPageProps> = ({
   // MEETING SETUP & IN-CALL STATE
   // ==========================================
   const [meetingMode, setMeetingMode] = useState<'lobby' | 'in-call'>('in-call');
-  const [engineType, setEngineType] = useState<'webrtc' | 'jitsi'>('webrtc');
+  const [engineType, setEngineType] = useState<'webrtc' | 'jitsi'>(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const urlEngine = params.get('engine');
+      if (urlEngine === 'jitsi' || urlEngine === 'webrtc') return urlEngine;
+      // If deployed on Vercel or any non-localhost cloud domain, default to Jitsi Cloud SFU
+      if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+        return 'jitsi';
+      }
+    } catch (e) {}
+    return 'webrtc';
+  });
   const [roomIdInput, setRoomIdInput] = useState<string>(() => {
     if (initialRoomId) return initialRoomId;
     const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
@@ -67,26 +78,28 @@ export const LiveMeetingPage: React.FC<LiveMeetingPageProps> = ({
   const [userName, setUserName] = useState<string>('Participant');
   const [userRole, setUserRole] = useState<'signer' | 'hearing'>('signer');
   const [copiedLink, setCopiedLink] = useState<boolean>(false);
-  const [copiedType, setCopiedType] = useState<'local' | 'network' | 'room' | 'jitsi' | null>(null);
+  const [copiedType, setCopiedType] = useState<'current' | 'local' | 'network' | 'room' | 'jitsi' | null>(null);
   const [showInviteModal, setShowInviteModal] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'translation' | 'stt' | 'chat'>('translation');
   const [layoutMode, setLayoutMode] = useState<'grid' | 'focus-remote' | 'focus-local'>('grid');
   const [showRoomSettings, setShowRoomSettings] = useState<boolean>(false);
 
-  // Helper to generate full URLs for both local and Wi-Fi devices
+  // Helper to generate full URLs for both local and cloud devices
   const getMeetingUrls = () => {
-    const port = window.location.port ? `:${window.location.port}` : '';
     const cleanRoom = roomIdInput.trim().toLowerCase().replace(/[^a-z0-9-_]/g, '-');
-    const localUrl = `http://localhost${port}/?room=${encodeURIComponent(cleanRoom)}`;
-    const hostIp = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1' 
+    const origin = typeof window !== 'undefined' && window.location.origin ? window.location.origin : 'https://demo-oi4k.vercel.app';
+    const currentUrl = `${origin}/?room=${encodeURIComponent(cleanRoom)}`;
+    const jitsiUrl = `https://meet.jit.si/SignConnect-${cleanRoom}`;
+    const localUrl = `http://localhost:3000/?room=${encodeURIComponent(cleanRoom)}`;
+    const hostIp = typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1' 
       ? window.location.hostname 
       : '192.168.0.130';
+    const port = typeof window !== 'undefined' && window.location.port ? `:${window.location.port}` : '';
     const networkUrl = `http://${hostIp}${port}/?room=${encodeURIComponent(cleanRoom)}`;
-    const jitsiUrl = `https://meet.jit.si/SignConnect-${cleanRoom}`;
-    return { localUrl, networkUrl, jitsiUrl, cleanRoom };
+    return { currentUrl, jitsiUrl, localUrl, networkUrl, cleanRoom };
   };
 
-  const copyToClipboardText = (text: string, type: 'local' | 'network' | 'room' | 'jitsi') => {
+  const copyToClipboardText = (text: string, type: 'current' | 'local' | 'network' | 'room' | 'jitsi') => {
     navigator.clipboard.writeText(text);
     setCopiedType(type);
     setCopiedLink(true);
@@ -1597,36 +1610,36 @@ export const LiveMeetingPage: React.FC<LiveMeetingPageProps> = ({
                 </div>
               </div>
 
-              {/* Option 1: Jitsi Cloud SFU (Works on ALL phones, external laptops, any Wi-Fi / 4G) */}
+              {/* Option 1: Live Web / Vercel Meeting Link */}
               <div className="p-4 rounded-2xl bg-indigo-950/60 border border-indigo-400/40 space-y-2 shadow-lg">
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-bold text-indigo-300 flex items-center gap-1.5">
-                    <span>🌐 Phone / Second Laptop / Remote (Jitsi Cloud)</span>
+                    <span>🌐 Shareable Web Link (Vercel / Mobile / Any PC)</span>
                   </span>
                   <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 px-2 py-0.5 rounded-full font-bold">
-                    Recommended for Phones
+                    Works for Anyone
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-300 leading-relaxed">
-                  Works on <strong>all iPhones, Android phones, and laptops</strong> over any Wi-Fi or mobile data. Full HTTPS ensures cameras & microphones work immediately with 0 configuration.
+                  Send this link to the second participant. When they open it on their phone or computer, both your video feeds and sign translation sync in real time:
                 </p>
                 <div className="flex items-center gap-2 pt-1">
                   <input
                     type="text"
                     readOnly
-                    value={getMeetingUrls().jitsiUrl}
+                    value={getMeetingUrls().currentUrl}
                     className="flex-1 px-3 py-2 rounded-xl bg-black/80 border border-indigo-400/40 text-cyan-300 text-xs font-mono select-all outline-none"
                   />
                   <button
                     type="button"
-                    onClick={() => copyToClipboardText(getMeetingUrls().jitsiUrl, 'jitsi')}
+                    onClick={() => copyToClipboardText(getMeetingUrls().currentUrl, 'current')}
                     className="px-3.5 py-2 rounded-xl linear-btn-primary font-bold text-white text-xs shrink-0 flex items-center gap-1.5 active:scale-95 transition shadow-md"
                   >
-                    {copiedType === 'jitsi' ? <CheckCheck className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedType === 'jitsi' ? 'Copied!' : 'Copy Link'}</span>
+                    {copiedType === 'current' ? <CheckCheck className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedType === 'current' ? 'Copied!' : 'Copy Link'}</span>
                   </button>
                   <a
-                    href={getMeetingUrls().jitsiUrl}
+                    href={getMeetingUrls().currentUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="px-3 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] text-slate-200 font-bold text-xs shrink-0 transition"
@@ -1634,20 +1647,30 @@ export const LiveMeetingPage: React.FC<LiveMeetingPageProps> = ({
                     Open ↗
                   </a>
                 </div>
-                {engineType !== 'jitsi' && (
-                  <div className="pt-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEngineType('jitsi');
-                        alert('Switched this screen to Jitsi Cloud! When your peer joins the link above, both your cameras will connect in the cloud room.');
-                      }}
-                      className="text-[11px] text-cyan-400 hover:text-cyan-300 underline font-semibold flex items-center gap-1"
-                    >
-                      <span>&rarr; Switch my current screen to Jitsi Cloud mode now</span>
-                    </button>
-                  </div>
-                )}
+              </div>
+
+              {/* Option 2: Direct Jitsi Cloud Room Link (Backup for Mobile) */}
+              <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/10 space-y-1.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-slate-200">📱 Direct Jitsi Cloud Link</span>
+                  <span className="text-[10px] text-cyan-400 font-mono">Global SFU</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={getMeetingUrls().jitsiUrl}
+                    className="flex-1 px-2.5 py-1.5 rounded-lg bg-black/50 border border-white/10 text-slate-400 text-[11px] font-mono select-all outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboardText(getMeetingUrls().jitsiUrl, 'jitsi')}
+                    className="px-2.5 py-1.5 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-slate-300 text-xs font-medium shrink-0 flex items-center gap-1"
+                  >
+                    {copiedType === 'jitsi' ? <CheckCheck className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                    <span>{copiedType === 'jitsi' ? 'Copied' : 'Copy'}</span>
+                  </button>
+                </div>
               </div>
 
               {/* Option 2: Localhost (Same PC second tab / Incognito) */}
