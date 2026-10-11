@@ -34,7 +34,9 @@ export const SpeechTextPage: React.FC = () => {
     isSttSupported,
     isListening,
     transcript,
+    finalTranscript,
     setTranscript,
+    setFinalTranscript,
     sttError,
     startListening,
     stopListening,
@@ -332,13 +334,27 @@ export const SpeechTextPage: React.FC = () => {
 
                 {/* Editable Transcript Area */}
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                    Live Spoken Transcript (Editable)
-                  </label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-semibold text-slate-300">
+                      Live Spoken Transcript (Editable)
+                    </label>
+                    {isListening && transcript && (
+                      <span className="text-[10px] text-purple-400 font-mono animate-pulse">
+                        Transcribing...
+                      </span>
+                    )}
+                  </div>
                   <textarea
                     rows={4}
-                    value={transcript}
-                    onChange={(e) => setTranscript(e.target.value)}
+                    value={
+                      finalTranscript
+                        ? `${finalTranscript}${transcript && !finalTranscript.endsWith(transcript) ? ' ' + transcript : ''}`
+                        : transcript
+                    }
+                    onChange={(e) => {
+                      setFinalTranscript(e.target.value);
+                      setTranscript('');
+                    }}
                     placeholder="Spoken words will appear here in real time. You can also edit this text manually..."
                     className="w-full p-4 rounded-2xl glass-input text-sm text-white placeholder-slate-500 focus:border-purple-400 transition"
                   />
@@ -358,22 +374,31 @@ export const SpeechTextPage: React.FC = () => {
           {/* Action Buttons */}
           {isSttSupported && (
             <div className="flex items-center gap-3 pt-4 border-t border-white/[0.08]">
-              <button
-                onClick={() => handleCopy(transcript, 'stt')}
-                disabled={!transcript.trim()}
-                className="flex-1 py-3.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] disabled:opacity-40 text-slate-200 border border-white/10 text-xs font-semibold flex items-center justify-center gap-2 transition active:scale-95"
-              >
-                {copiedStt ? <CheckCheck className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-                <span>{copiedStt ? 'Copied Transcript' : 'Copy Transcript'}</span>
-              </button>
+              {(() => {
+                const currentFull = finalTranscript
+                  ? `${finalTranscript}${transcript && !finalTranscript.endsWith(transcript) ? ' ' + transcript : ''}`
+                  : transcript;
+                return (
+                  <>
+                    <button
+                      onClick={() => handleCopy(currentFull, 'stt')}
+                      disabled={!currentFull.trim()}
+                      className="flex-1 py-3.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] disabled:opacity-40 text-slate-200 border border-white/10 text-xs font-semibold flex items-center justify-center gap-2 transition active:scale-95"
+                    >
+                      {copiedStt ? <CheckCheck className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                      <span>{copiedStt ? 'Copied Transcript' : 'Copy Transcript'}</span>
+                    </button>
 
-              <button
-                onClick={clearTranscript}
-                disabled={!transcript.trim()}
-                className="px-5 py-3.5 rounded-xl bg-white/[0.05] hover:bg-rose-500/20 disabled:opacity-40 text-slate-400 hover:text-rose-400 border border-white/10 text-xs font-semibold transition active:scale-95"
-              >
-                Clear
-              </button>
+                    <button
+                      onClick={clearTranscript}
+                      disabled={!currentFull.trim()}
+                      className="px-5 py-3.5 rounded-xl bg-white/[0.05] hover:bg-rose-500/20 disabled:opacity-40 text-slate-400 hover:text-rose-400 border border-white/10 text-xs font-semibold transition active:scale-95"
+                    >
+                      Clear
+                    </button>
+                  </>
+                );
+              })()}
             </div>
           )}
         </div>

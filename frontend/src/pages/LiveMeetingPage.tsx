@@ -120,6 +120,9 @@ export const LiveMeetingPage: React.FC<LiveMeetingPageProps> = ({
     isSttSupported, 
     isListening, 
     transcript, 
+    finalTranscript,
+    latestFinalPhrase,
+    sttError,
     startListening, 
     stopListening, 
     clearTranscript 
@@ -193,16 +196,41 @@ export const LiveMeetingPage: React.FC<LiveMeetingPageProps> = ({
     } catch (e) {}
   }, [messages]);
 
-  // STT listener update for hearing participant
+  // STT listener update for hearing participant: real-time interim subtitle
   useEffect(() => {
     if (transcript && transcript.trim()) {
       triggerSubtitle(transcript, 'local-stt', userName);
-      // Broadcast STT to peer
+      // Broadcast STT interim to peer so they see typing in real-time
       if (webrtcMeeting.isInMeeting) {
-        webrtcMeeting.broadcastStt(transcript, true);
+        webrtcMeeting.broadcastStt(transcript, false);
       }
     }
   }, [transcript]);
+
+  // When speech utterance is finalized: add to conversation messages & broadcast final
+  useEffect(() => {
+    if (latestFinalPhrase && latestFinalPhrase.text.trim()) {
+      const phrase = latestFinalPhrase.text.trim();
+      triggerSubtitle(phrase, 'local-stt', userName);
+
+      const sttMsg: ChatMessage = {
+        id: Date.now().toString(),
+        text: phrase,
+        sender: userRole === 'signer' ? 'signer' : 'hearing',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+
+      setMessages(prev => {
+        const last = prev[prev.length - 1];
+        if (last && last.text.toLowerCase() === phrase.toLowerCase()) return prev;
+        return [...prev, sttMsg];
+      });
+
+      if (webrtcMeeting.isInMeeting) {
+        webrtcMeeting.broadcastStt(phrase, true);
+      }
+    }
+  }, [latestFinalPhrase]);
 
   // ==========================================
   // WEBRTC MEETING HOOK
@@ -1215,19 +1243,52 @@ export const LiveMeetingPage: React.FC<LiveMeetingPageProps> = ({
                 <span>Auto-Voice: {autoSpeechEnabled ? 'ON' : 'OFF'}</span>
               </button>
 
-              {isSttSupported && (
+              {isSttSupported ? (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={isListening ? stopListening : startListening}
+                    className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold transition active:scale-95 ${
+                      isListening
+                        ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white border border-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.4)]'
+                        : 'bg-white/[0.04] text-slate-300 hover:text-white border border-white/10'
+                    }`}
+                    title="Hearing participant speech-to-text live subtitles & captions"
+                  >
+                    {isListening ? (
+                      <>
+                        <Mic className="w-4 h-4 text-purple-200 animate-pulse" />
+                        <span className="flex items-center gap-1.5">
+                          <span>Speech Captions:</span>
+                          <span className="text-purple-200 uppercase font-black tracking-wider">Listening</span>
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <MicOff className="w-4 h-4 text-slate-400" />
+                        <span>Speech Captions: OFF</span>
+                      </>
+                    )}
+                  </button>
+
+                  {sttError && (
+                    <span 
+                      className="text-[10px] px-2 py-1 rounded-lg bg-rose-500/20 text-rose-300 border border-rose-500/30 font-medium cursor-help"
+                      title={sttError}
+                    >
+                      Mic Blocked
+                    </span>
+                  )}
+                </div>
+              ) : (
                 <button
                   type="button"
-                  onClick={isListening ? stopListening : startListening}
-                  className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold transition ${
-                    isListening
-                      ? 'bg-violet-600 text-white border border-violet-400 animate-pulse shadow-[0_0_15px_rgba(139,92,246,0.5)]'
-                      : 'bg-white/[0.04] text-slate-300 hover:text-white border border-white/10'
-                  }`}
-                  title="Hearing participant speech-to-text live subtitles"
+                  disabled
+                  className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold bg-white/[0.02] text-slate-500 border border-white/5 cursor-not-allowed"
+                  title="Web Speech API not supported in this browser. Please use Chrome, Edge, or Safari."
                 >
-                  <Mic className="w-4 h-4 text-violet-400" />
-                  <span>Hearing Subtitles: {isListening ? 'LISTENING' : 'OFF'}</span>
+                  <MicOff className="w-4 h-4" />
+                  <span>STT (Use Chrome)</span>
                 </button>
               )}
             </div>
@@ -1289,6 +1350,22 @@ export const LiveMeetingPage: React.FC<LiveMeetingPageProps> = ({
                 }`}
               >
                 🤟 Sign Translation
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('stt')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+                  activeTab === 'stt'
+                    ? 'bg-purple-500/20 text-purple-300 border border-purple-400/30'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Mic className="w-3.5 h-3.5" />
+                <span>Speech → Text</span>
+                {isListening && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-ping"></span>
+                )}
               </button>
 
               <button
@@ -1462,7 +1539,168 @@ export const LiveMeetingPage: React.FC<LiveMeetingPageProps> = ({
             </div>
           )}
 
-          {/* TAB 2: CHAT TRANSCRIPT & TWO-WAY MESSAGING */}
+          {/* TAB 2: SPEECH-TO-TEXT LIVE TRANSCRIBER & MICROPHONE MONITOR */}
+          {activeTab === 'stt' && (
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              
+              {/* Mic Status & Quick Toggle Banner */}
+              <div className={`p-4 rounded-2xl border transition-all ${
+                isListening 
+                  ? 'bg-purple-950/40 border-purple-500/50 shadow-[0_0_20px_rgba(168,85,247,0.2)]'
+                  : 'bg-white/[0.03] border-white/[0.06]'
+              }`}>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${
+                      isListening ? 'bg-purple-500/20 text-purple-300 border border-purple-400/40' : 'bg-white/[0.05] text-slate-400'
+                    }`}>
+                      <Mic className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-white">Speech Captions</h4>
+                      <p className="text-[10px] text-slate-400">
+                        {isListening ? 'Continuous listening active' : 'Click to start live speech transcription'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={isListening ? stopListening : startListening}
+                    disabled={!isSttSupported}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 active:scale-95 ${
+                      isListening
+                        ? 'bg-rose-600 hover:bg-rose-500 text-white'
+                        : 'linear-btn-primary text-white'
+                    }`}
+                  >
+                    {isListening ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+                    <span>{isListening ? 'Pause' : 'Start'}</span>
+                  </button>
+                </div>
+
+                {/* Animated Waveform when listening */}
+                {isListening ? (
+                  <div className="p-3 rounded-xl bg-black/40 border border-purple-500/30 flex items-center justify-between">
+                    <span className="text-[11px] text-purple-300 font-medium flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-purple-400 animate-ping"></span>
+                      <span>Listening for voice...</span>
+                    </span>
+                    <div className="flex items-center gap-1 h-4">
+                      <span className="w-1 h-3 bg-cyan-400 rounded-full animate-bounce"></span>
+                      <span className="w-1 h-4 bg-purple-400 rounded-full animate-bounce [animation-delay:150ms]"></span>
+                      <span className="w-1 h-2 bg-indigo-400 rounded-full animate-bounce [animation-delay:300ms]"></span>
+                      <span className="w-1 h-4 bg-pink-400 rounded-full animate-bounce [animation-delay:450ms]"></span>
+                      <span className="w-1 h-3 bg-cyan-400 rounded-full animate-bounce [animation-delay:200ms]"></span>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    Speak into your microphone to generate instant captions for the deaf participant, with automatic voice transcription.
+                  </p>
+                )}
+              </div>
+
+              {/* STT Error Alert if microphone permission was blocked */}
+              {sttError && (
+                <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-200 text-xs space-y-1">
+                  <div className="flex items-center gap-2 font-bold text-rose-300">
+                    <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                    <span>Microphone Permission Alert</span>
+                  </div>
+                  <p className="text-[11px] text-rose-200/90 leading-relaxed">
+                    {sttError}
+                  </p>
+                  <p className="text-[10px] text-slate-400 pt-1">
+                    Tip: Click the lock or camera icon on the left of your browser URL bar, set Microphone to <strong>"Allow"</strong>, and click Start.
+                  </p>
+                </div>
+              )}
+
+              {/* Current Live Utterance Box */}
+              <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/[0.06] space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                    <span>Live Spoken Words</span>
+                  </span>
+                  {transcript && (
+                    <span className="text-[10px] text-purple-300 font-mono animate-pulse">
+                      Transcribing live...
+                    </span>
+                  )}
+                </div>
+
+                <div className="p-3 rounded-xl bg-black/60 border border-white/10 min-h-[60px] text-xs text-slate-200 font-medium">
+                  {transcript ? (
+                    <span className="text-white font-semibold">"{transcript}"</span>
+                  ) : (
+                    <span className="text-slate-500 italic">
+                      {isListening ? 'Speak now into microphone...' : 'Microphone is paused. Click Start to speak.'}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Accumulated Spoken Captions Feed */}
+              <div className="space-y-2 pt-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                    Speech Subtitles Log
+                  </span>
+                  {messages.filter(m => m.sender === 'hearing' || m.sender === userRole).length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const allSpeech = messages
+                          .filter(m => m.sender === 'hearing' || m.sender === userRole)
+                          .map(m => m.text)
+                          .join('\n');
+                        navigator.clipboard.writeText(allSpeech);
+                      }}
+                      className="text-[10px] text-purple-400 hover:text-white transition flex items-center gap-1"
+                    >
+                      <Copy className="w-3 h-3" />
+                      <span>Copy Log</span>
+                    </button>
+                  )}
+                </div>
+
+                {messages.filter(m => m.sender === 'hearing' || m.sender === userRole).length === 0 ? (
+                  <p className="text-xs text-slate-500 italic py-2">
+                    No speech recorded yet. Turn on Speech Captions and speak.
+                  </p>
+                ) : (
+                  messages
+                    .filter(m => m.sender === 'hearing' || m.sender === userRole)
+                    .slice(-8)
+                    .map((msg) => (
+                      <div
+                        key={msg.id}
+                        className="p-3 rounded-xl bg-purple-950/20 border border-purple-500/20 flex items-center justify-between text-xs"
+                      >
+                        <div className="flex items-center gap-2 flex-1 pr-2">
+                          <span className="text-xs">🎙️</span>
+                          <span className="font-medium text-slate-200">{msg.text}</span>
+                          <span className="text-[10px] text-slate-500 font-mono shrink-0 ml-auto">{msg.timestamp}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => speak(msg.text)}
+                          className="p-1 rounded text-purple-400 hover:text-white shrink-0"
+                          title="Replay with TTS voice"
+                        >
+                          <Volume2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))
+                )}
+              </div>
+
+            </div>
+          )}
+
+          {/* TAB 3: CHAT TRANSCRIPT & TWO-WAY MESSAGING */}
           {activeTab === 'chat' && (
             <div className="flex-1 flex flex-col overflow-hidden">
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
