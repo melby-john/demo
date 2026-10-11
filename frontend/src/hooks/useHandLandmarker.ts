@@ -254,7 +254,7 @@ export function useHandLandmarker(options: UseHandLandmarkerOptions = {}) {
     animFrameIdRef.current = requestAnimationFrame(processFrame);
   }, [isVideoEnabled]);
 
-  // Keep video element attached to the active stream even across re-renders
+  // Keep video element attached to the active stream continuously
   useEffect(() => {
     if (videoRef.current && streamRef.current) {
       if (videoRef.current.srcObject !== streamRef.current) {
@@ -262,7 +262,7 @@ export function useHandLandmarker(options: UseHandLandmarkerOptions = {}) {
         videoRef.current.play().catch(() => {});
       }
     }
-  }, [isCameraActive, isVideoEnabled]);
+  });
 
   // Start Camera
   const startCamera = async (): Promise<MediaStream | null> => {

@@ -36,6 +36,7 @@ import { JitsiMeetingView } from '../components/JitsiMeetingView';
 import { apiService } from '../services/api';
 import { ModelStatus, ChatMessage, AppSettings, PredictionResult } from '../types';
 import { DAILY_SIGNS } from '../data/dailySigns';
+import { evaluateGeometricRules } from '../utils/signPredictor';
 
 interface LiveMeetingPageProps {
   settings: AppSettings;
@@ -284,7 +285,7 @@ export const LiveMeetingPage: React.FC<LiveMeetingPageProps> = ({
     face?: any,
     rawFacePoints?: any[]
   ) => {
-    if (!hands || hands.length === 0 || !modelStatus?.ready || !backendOnline) {
+    if (!hands || hands.length === 0) {
       setCurrentPrediction(null);
       if (!noHandsTimerRef.current) {
         noHandsTimerRef.current = setTimeout(() => {
@@ -300,23 +301,32 @@ export const LiveMeetingPage: React.FC<LiveMeetingPageProps> = ({
       noHandsTimerRef.current = null;
     }
 
-    if (isClassifyingRef.current) return;
+    // 1. Instant client-side geometric rule prediction (works on Vercel, offline, 60 FPS)
+    let result = evaluateGeometricRules(hands, face, rawFacePoints);
 
-    const now = Date.now();
-    if (now - lastPredictionTimeRef.current < (settings.cooldownMs || 600)) {
-      return;
+    // 2. Query backend model if rules didn't match and backend is available
+    if (!result && backendOnline && modelStatus?.ready && !isClassifyingRef.current) {
+      const now = Date.now();
+      if (now - lastPredictionTimeRef.current >= (settings.cooldownMs || 600)) {
+        isClassifyingRef.current = true;
+        lastPredictionTimeRef.current = now;
+        setIsClassifying(true);
+        try {
+          result = await apiService.predictSign({
+            hands,
+            face: face || null,
+            faceLandmarks: rawFacePoints && rawFacePoints.length > 0 ? rawFacePoints : undefined
+          });
+        } catch (err) {
+          console.warn('Backend prediction error:', err);
+        } finally {
+          isClassifyingRef.current = false;
+          setIsClassifying(false);
+        }
+      }
     }
 
-    isClassifyingRef.current = true;
-    lastPredictionTimeRef.current = now;
-    setIsClassifying(true);
-
-    try {
-      const result = await apiService.predictSign({
-        hands,
-        face: face || null,
-        faceLandmarks: rawFacePoints && rawFacePoints.length > 0 ? rawFacePoints : undefined
-      });
+    if (result) {
       setCurrentPrediction(result);
 
       const threshold = settings.confidenceThreshold || 0.70;
@@ -324,14 +334,15 @@ export const LiveMeetingPage: React.FC<LiveMeetingPageProps> = ({
         const signWord = result.label.replace(/_/g, ' ');
         setPendingCaption(signWord);
 
+        const now = Date.now();
         const isNewSign = lastSpokenWordRef.current.toLowerCase() !== signWord.toLowerCase();
-        const hasEnoughTimeElapsed = (now - lastSpokenTimeRef.current) > 2200;
+        const hasEnoughTimeElapsed = (now - lastSpokenTimeRef.current) > 2000;
 
         if (isNewSign || hasEnoughTimeElapsed) {
           lastSpokenWordRef.current = signWord;
           lastSpokenTimeRef.current = now;
 
-          // Display subtitle on local video feed
+          // Display subtitle on video feed
           triggerSubtitle(signWord, 'local-sign', userName, result.confidence);
 
           // Broadcast to remote peer in real time!
@@ -365,11 +376,6 @@ export const LiveMeetingPage: React.FC<LiveMeetingPageProps> = ({
           });
         }
       }
-    } catch (err) {
-      console.warn('Prediction error:', err);
-    } finally {
-      isClassifyingRef.current = false;
-      setIsClassifying(false);
     }
   }, [backendOnline, modelStatus?.ready, settings.cooldownMs, settings.confidenceThreshold, autoSpeechEnabled, speak, triggerSubtitle, userName, webrtcMeeting]);
 
@@ -1307,6 +1313,32 @@ export const LiveMeetingPage: React.FC<LiveMeetingPageProps> = ({
               <Trash2 className="w-3.5 h-3.5" />
             </button>
           </div>
+
+          {/* Vision AI Camera Tracker when Jitsi mode is active */}
+          {engineType === 'jitsi' && (
+            <div className="p-3 pb-0">
+              <div className="relative aspect-video rounded-2xl overflow-hidden bg-black/90 border border-cyan-500/40 flex items-center justify-center shadow-lg group">
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className={`w-full h-full object-cover ${settings.mirrorCamera ? 'scale-x-[-1]' : ''}`}
+                />
+                <canvas
+                  ref={canvasRef}
+                  className="absolute inset-0 w-full h-full object-cover pointer-events-none z-10"
+                />
+                <div className="absolute top-2 left-2 px-2.5 py-1 rounded-full bg-black/80 backdrop-blur-md border border-white/10 text-[10px] font-bold text-cyan-300 flex items-center gap-1.5 z-20">
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping"></span>
+                  <span>AI Hand Tracker</span>
+                </div>
+                <div className="absolute top-2 right-2 px-2.5 py-1 rounded-full bg-black/80 backdrop-blur-md border border-white/10 text-[10px] font-bold text-white z-20">
+                  {detectedHands.length > 0 ? `${detectedHands.length} Hand(s) Locked` : 'Show Hand to Camera'}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* TAB 1: SIGN TRANSLATION & LIVE PREDICTIONS */}
           {activeTab === 'translation' && (
