@@ -67,7 +67,7 @@ export const LiveMeetingPage: React.FC<LiveMeetingPageProps> = ({
   const [userName, setUserName] = useState<string>('Participant');
   const [userRole, setUserRole] = useState<'signer' | 'hearing'>('signer');
   const [copiedLink, setCopiedLink] = useState<boolean>(false);
-  const [copiedType, setCopiedType] = useState<'local' | 'network' | 'room' | null>(null);
+  const [copiedType, setCopiedType] = useState<'local' | 'network' | 'room' | 'jitsi' | null>(null);
   const [showInviteModal, setShowInviteModal] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'translation' | 'stt' | 'chat'>('translation');
   const [layoutMode, setLayoutMode] = useState<'grid' | 'focus-remote' | 'focus-local'>('grid');
@@ -76,16 +76,17 @@ export const LiveMeetingPage: React.FC<LiveMeetingPageProps> = ({
   // Helper to generate full URLs for both local and Wi-Fi devices
   const getMeetingUrls = () => {
     const port = window.location.port ? `:${window.location.port}` : '';
-    const cleanRoom = roomIdInput.trim();
+    const cleanRoom = roomIdInput.trim().toLowerCase().replace(/[^a-z0-9-_]/g, '-');
     const localUrl = `http://localhost${port}/?room=${encodeURIComponent(cleanRoom)}`;
     const hostIp = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1' 
       ? window.location.hostname 
       : '192.168.0.130';
     const networkUrl = `http://${hostIp}${port}/?room=${encodeURIComponent(cleanRoom)}`;
-    return { localUrl, networkUrl, cleanRoom };
+    const jitsiUrl = `https://meet.jit.si/SignConnect-${cleanRoom}`;
+    return { localUrl, networkUrl, jitsiUrl, cleanRoom };
   };
 
-  const copyToClipboardText = (text: string, type: 'local' | 'network' | 'room') => {
+  const copyToClipboardText = (text: string, type: 'local' | 'network' | 'room' | 'jitsi') => {
     navigator.clipboard.writeText(text);
     setCopiedType(type);
     setCopiedLink(true);
@@ -810,14 +811,19 @@ export const LiveMeetingPage: React.FC<LiveMeetingPageProps> = ({
 
         {/* Engine and Participant Status Pills */}
         <div className="flex items-center gap-2">
-          <span className={`px-3 py-1 rounded-full text-xs font-semibold border flex items-center gap-1.5 ${
-            engineType === 'webrtc' 
-              ? 'bg-cyan-950/60 border-cyan-500/30 text-cyan-300' 
-              : 'bg-indigo-950/60 border-indigo-500/30 text-indigo-300'
-          }`}>
+          <button
+            type="button"
+            onClick={() => setEngineType(prev => prev === 'webrtc' ? 'jitsi' : 'webrtc')}
+            className={`px-3 py-1.5 rounded-full text-xs font-semibold border flex items-center gap-1.5 transition active:scale-95 shadow-md ${
+              engineType === 'webrtc' 
+                ? 'bg-cyan-950/80 hover:bg-cyan-900/80 border-cyan-500/40 text-cyan-300' 
+                : 'bg-indigo-950/80 hover:bg-indigo-900/80 border-indigo-500/40 text-indigo-300'
+            }`}
+            title="Click to switch between WebRTC Direct (Local) and Jitsi Cloud (Phone/Remote)"
+          >
             <Sparkles className="w-3 h-3 text-cyan-400" />
-            <span>{engineType === 'webrtc' ? 'WebRTC Direct P2P' : 'Jitsi Meet Cloud'}</span>
-          </span>
+            <span>{engineType === 'webrtc' ? 'WebRTC Direct P2P (Switch to Jitsi Cloud)' : 'Jitsi Meet Cloud (Switch to WebRTC)'}</span>
+          </button>
 
           {engineType === 'webrtc' && (
             <span className={`px-3 py-1 rounded-full text-xs font-semibold border flex items-center gap-1.5 ${
@@ -1200,6 +1206,20 @@ export const LiveMeetingPage: React.FC<LiveMeetingPageProps> = ({
             <div className="flex items-center gap-2">
               <button
                 type="button"
+                onClick={() => setEngineType(prev => prev === 'webrtc' ? 'jitsi' : 'webrtc')}
+                className={`flex items-center gap-1.5 px-3 py-2.5 rounded-xl border text-xs font-bold transition ${
+                  engineType === 'webrtc'
+                    ? 'bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border-indigo-500/30'
+                    : 'bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border-cyan-500/30'
+                }`}
+                title="Toggle between WebRTC Direct (Localhost) and Jitsi Cloud (Phones/Remote)"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">{engineType === 'webrtc' ? 'Switch to Jitsi' : 'Switch to WebRTC'}</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setShowSignCheatSheet(true)}
                 className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs font-bold transition"
                 title="View 24 ISL Daily Signs Guide"
@@ -1577,44 +1597,69 @@ export const LiveMeetingPage: React.FC<LiveMeetingPageProps> = ({
                 </div>
               </div>
 
-              {/* URL 1: Mobile / Other laptop on Wi-Fi */}
-              <div className="p-4 rounded-2xl bg-indigo-950/40 border border-indigo-500/30 space-y-2">
+              {/* Option 1: Jitsi Cloud SFU (Works on ALL phones, external laptops, any Wi-Fi / 4G) */}
+              <div className="p-4 rounded-2xl bg-indigo-950/60 border border-indigo-400/40 space-y-2 shadow-lg">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="font-bold text-indigo-300">
-                    📱 Phone / Second Computer (Same Wi-Fi)
+                  <span className="font-bold text-indigo-300 flex items-center gap-1.5">
+                    <span>🌐 Phone / Second Laptop / Remote (Jitsi Cloud)</span>
                   </span>
-                  <span className="text-[10px] text-emerald-400 font-bold font-mono">Recommended</span>
+                  <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 px-2 py-0.5 rounded-full font-bold">
+                    Recommended for Phones
+                  </span>
                 </div>
-                <p className="text-[11px] text-slate-400">
-                  Send this link to a phone or laptop connected to your Wi-Fi network:
+                <p className="text-[11px] text-slate-300 leading-relaxed">
+                  Works on <strong>all iPhones, Android phones, and laptops</strong> over any Wi-Fi or mobile data. Full HTTPS ensures cameras & microphones work immediately with 0 configuration.
                 </p>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 pt-1">
                   <input
                     type="text"
                     readOnly
-                    value={getMeetingUrls().networkUrl}
-                    className="flex-1 px-3 py-2 rounded-xl bg-black/70 border border-indigo-400/40 text-cyan-300 text-xs font-mono select-all outline-none"
+                    value={getMeetingUrls().jitsiUrl}
+                    className="flex-1 px-3 py-2 rounded-xl bg-black/80 border border-indigo-400/40 text-cyan-300 text-xs font-mono select-all outline-none"
                   />
                   <button
                     type="button"
-                    onClick={() => copyToClipboardText(getMeetingUrls().networkUrl, 'network')}
-                    className="px-4 py-2 rounded-xl linear-btn-primary font-bold text-white text-xs shrink-0 flex items-center gap-1.5 active:scale-95 transition shadow-md"
+                    onClick={() => copyToClipboardText(getMeetingUrls().jitsiUrl, 'jitsi')}
+                    className="px-3.5 py-2 rounded-xl linear-btn-primary font-bold text-white text-xs shrink-0 flex items-center gap-1.5 active:scale-95 transition shadow-md"
                   >
-                    {copiedType === 'network' ? <CheckCheck className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedType === 'network' ? 'Copied!' : 'Copy Link'}</span>
+                    {copiedType === 'jitsi' ? <CheckCheck className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedType === 'jitsi' ? 'Copied!' : 'Copy Link'}</span>
                   </button>
+                  <a
+                    href={getMeetingUrls().jitsiUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] text-slate-200 font-bold text-xs shrink-0 transition"
+                  >
+                    Open ↗
+                  </a>
                 </div>
+                {engineType !== 'jitsi' && (
+                  <div className="pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEngineType('jitsi');
+                        alert('Switched this screen to Jitsi Cloud! When your peer joins the link above, both your cameras will connect in the cloud room.');
+                      }}
+                      className="text-[11px] text-cyan-400 hover:text-cyan-300 underline font-semibold flex items-center gap-1"
+                    >
+                      <span>&rarr; Switch my current screen to Jitsi Cloud mode now</span>
+                    </button>
+                  </div>
+                )}
               </div>
 
-              {/* URL 2: Localhost (Same PC second tab) */}
+              {/* Option 2: Localhost (Same PC second tab / Incognito) */}
               <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/10 space-y-2">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="font-semibold text-slate-200">
-                    💻 Same Computer (Incognito or Second Browser Tab)
+                  <span className="font-semibold text-slate-200 flex items-center gap-1.5">
+                    <span>💻 Same Laptop (2 Tabs / Incognito Window)</span>
                   </span>
+                  <span className="text-[10px] text-cyan-400 font-bold font-mono">WebRTC Direct</span>
                 </div>
-                <p className="text-[11px] text-slate-400">
-                  Open in Chrome Incognito or Edge to test both participant video feeds:
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Open this link in <strong>Chrome Incognito or Edge</strong> on this computer to test 2-participant video feeds side by side with 3D landmark overlays.
                 </p>
                 <div className="flex items-center gap-2">
                   <input
@@ -1626,17 +1671,45 @@ export const LiveMeetingPage: React.FC<LiveMeetingPageProps> = ({
                   <button
                     type="button"
                     onClick={() => copyToClipboardText(getMeetingUrls().localUrl, 'local')}
-                    className="px-4 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] text-slate-200 font-bold text-xs shrink-0 flex items-center gap-1.5 border border-white/10 active:scale-95 transition"
+                    className="px-3.5 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] text-slate-200 font-bold text-xs shrink-0 flex items-center gap-1.5 border border-white/10 active:scale-95 transition"
                   >
                     {copiedType === 'local' ? <CheckCheck className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                     <span>{copiedType === 'local' ? 'Copied!' : 'Copy Link'}</span>
                   </button>
+                  <a
+                    href={getMeetingUrls().localUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] text-slate-200 font-bold text-xs shrink-0 transition"
+                  >
+                    Open Tab ↗
+                  </a>
                 </div>
               </div>
 
-              <div className="text-center pt-1">
-                <p className="text-[11px] text-slate-400">
-                  When the second participant opens the link, both cameras and translation sync automatically.
+              {/* Option 3: Local Wi-Fi Network */}
+              <div className="p-3.5 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-1.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-medium text-slate-400">📶 Direct Local Wi-Fi IP</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={getMeetingUrls().networkUrl}
+                    className="flex-1 px-2.5 py-1.5 rounded-lg bg-black/50 border border-white/10 text-slate-400 text-[11px] font-mono select-all outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboardText(getMeetingUrls().networkUrl, 'network')}
+                    className="px-2.5 py-1.5 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-slate-300 text-xs font-medium shrink-0 flex items-center gap-1"
+                  >
+                    {copiedType === 'network' ? <CheckCheck className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                    <span>{copiedType === 'network' ? 'Copied' : 'Copy'}</span>
+                  </button>
+                </div>
+                <p className="text-[10px] text-amber-400/90 leading-tight">
+                  ⚠️ Note: On public event/hackathon Wi-Fi (client isolation enabled), devices cannot connect directly. Use the <strong>Jitsi Cloud Link</strong> above.
                 </p>
               </div>
             </div>
